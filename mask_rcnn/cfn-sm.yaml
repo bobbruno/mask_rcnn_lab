@@ -474,6 +474,7 @@ Resources:
                   - "kms:DescribeKey"
                   - "kms:ListAliases"
                   - "elasticfilesystem:DescribeMountTargets"
+                  - "s3:CreateBucket*"
                 Resource: "*"
               -
                 Effect: "Allow"
