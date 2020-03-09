@@ -17,11 +17,12 @@ from __future__ import print_function
 import argparse
 import functools
 import os
-
+import sys
 import tensorflow as tf
 
 import resnet_model
 
+device = '/cpu:0'
 INPUT_TENSOR_NAME = "inputs"
 SIGNATURE_NAME = "serving_default"
 
@@ -55,7 +56,7 @@ def model_fn(features, labels, mode):
     inputs = features[INPUT_TENSOR_NAME]
     tf.summary.image('images', inputs, max_outputs=6)
 
-    network = resnet_model.cifar10_resnet_v2_generator(RESNET_SIZE, NUM_CLASSES)
+    network = resnet_model.cifar10_resnet_v2_generator(RESNET_SIZE, NUM_CLASSES, 'channels_last')
 
     inputs = tf.reshape(inputs, [-1, HEIGHT, WIDTH, DEPTH])
 
@@ -159,14 +160,14 @@ def parser(serialized_example):
 
 
 def train_input_fn(data_dir):
-    with tf.device('/cpu:0'):
+    with tf.device(device):
         train_data = os.path.join(data_dir, 'train.tfrecords')
         image_batch, label_batch = make_batch(train_data, BATCH_SIZE)
         return {INPUT_TENSOR_NAME: image_batch}, label_batch
 
 
 def eval_input_fn(data_dir):
-    with tf.device('/cpu:0'):
+    with tf.device(device):
         eval_data = os.path.join(data_dir, 'eval.tfrecords')
         image_batch, label_batch = make_batch(eval_data, BATCH_SIZE)
 
@@ -184,7 +185,8 @@ def train(model_dir, data_dir, train_steps):
     temp_eval_fn = functools.partial(eval_input_fn, data_dir)
     eval_spec = tf.estimator.EvalSpec(temp_eval_fn, steps=1, exporters=exporter)
 
-    tf.estimator.train_and_evaluate(estimator=estimator, train_spec=train_spec, eval_spec=eval_spec)
+    (eval, _) = tf.estimator.train_and_evaluate(estimator=estimator, train_spec=train_spec, eval_spec=eval_spec)
+    tf.logging.info(eval)
 
 
 def main(model_dir, data_dir, train_steps):
@@ -193,6 +195,12 @@ def main(model_dir, data_dir, train_steps):
 
 
 if __name__ == '__main__':
+    available_gpus = tf.config.experimental.list_physical_devices('GPU')
+    if len(available_gpus) > 0:
+        tf.print(f"GPUs available to Tensorflow: {available_gpus}.", output_stream=sys.stdout)
+        device = '/gpu:0'
+    else:
+        tf.print('No GPUs available, training with cpu.', output_stream=sys.stdout)
     args_parser = argparse.ArgumentParser()
     # For more information:
     # https://docs.aws.amazon.com/sagemaker/latest/dg/your-algorithms-training-algo.html
