@@ -17,8 +17,10 @@ import os
 import numpy as np
 import json
 
+from tensorflow.keras.optimizers import Adam
 
-def model(x_train, y_train, x_test, y_test):
+
+def model(x_train, y_train, x_test, y_test, args):
     """Generate a simple model"""
     model = tf.keras.models.Sequential([
         tf.keras.layers.Flatten(),
@@ -27,13 +29,13 @@ def model(x_train, y_train, x_test, y_test):
         tf.keras.layers.Dense(10, activation=tf.nn.softmax)
     ])
 
-    model.compile(optimizer='adam',
+    model.compile(optimizer=Adam(learning_rate=args.learning_rate),
                   loss='sparse_categorical_crossentropy',
                   metrics=['accuracy'])
-    model.fit(x_train, y_train)
-    model.evaluate(x_test, y_test)
-
-    return model
+    history = model.fit(x_train, y_train, verbose=2)
+    metrics = model.evaluate(x_test, y_test, verbose=0)
+    evals = {metric: value for metric, value in zip(model.metrics_names, metrics)}
+    return model, evals, history.history
 
 
 def _load_training_data(base_dir):
@@ -60,18 +62,25 @@ def _parse_args():
     parser.add_argument('--train', type=str, default=os.environ.get('SM_CHANNEL_TRAINING'))
     parser.add_argument('--hosts', type=list, default=json.loads(os.environ.get('SM_HOSTS')))
     parser.add_argument('--current-host', type=str, default=os.environ.get('SM_CURRENT_HOST'))
+    parser.add_argument('--learning-rate', type=float, help="Learning rate", default=0.001)
 
     return parser.parse_known_args()
 
 
 if __name__ == "__main__":
+    print(f'GPUs available to Tensorflow: {tf.config.experimental.list_physical_devices("GPU")}')
     args, unknown = _parse_args()
 
     train_data, train_labels = _load_training_data(args.train)
     eval_data, eval_labels = _load_testing_data(args.train)
 
-    mnist_classifier = model(train_data, train_labels, eval_data, eval_labels)
+    mnist_classifier, eval_metrics, train_metrics = model(train_data, train_labels, eval_data, eval_labels, args)
 
     if args.current_host == args.hosts[0]:
+        # Print evaluation loss for HPO
+        for metric, values in train_metrics.items():
+            print(f'train_{metric}: {values[-1]}')
+        for metric, value in eval_metrics.items():
+            print(f'Evaluation {metric}: {value}')
         # save model to an S3 directory with version number '00000001'
         mnist_classifier.save(os.path.join(args.sm_model_dir, '000000001'), 'my_model.h5')
